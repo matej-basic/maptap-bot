@@ -39,7 +39,10 @@ const getLeaderboard = db.prepare(`
     username,
     COUNT(*)         AS games_played,
     AVG(final_score) AS avg_score,
-    MAX(final_score) AS best_score
+    MAX(final_score) AS best_score,
+    SUM(CASE WHEN final_score = (
+      SELECT MAX(s2.final_score) FROM scores s2 WHERE s2.game_date = scores.game_date
+    ) THEN 1 ELSE 0 END) AS daily_wins
   FROM scores
   GROUP BY user_id
   ORDER BY avg_score DESC
@@ -250,7 +253,7 @@ client.on('interactionCreate', async (interaction) => {
     const lines = rows.map((row, i) => {
       const medal = medals[i] || `${i + 1}.`;
       const avg = parseFloat(row.avg_score).toFixed(1);
-      return `${medal} **${row.username}** — avg ${avg} | best ${row.best_score} | ${row.games_played} games`;
+      return `${medal} **${row.username}** — avg ${avg} | best ${row.best_score} | ${row.games_played} games | 🏆 ${row.daily_wins} wins`;
     });
 
     const embed = new EmbedBuilder()
