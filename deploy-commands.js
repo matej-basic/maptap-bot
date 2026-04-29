@@ -33,6 +33,16 @@ const commands = [
         .setDescription('Date in YYYY-MM-DD format (defaults to today)')
         .setRequired(false)
     ),
+
+  new SlashCommandBuilder()
+    .setName('compare')
+    .setDescription('Head-to-head stats between two players')
+    .addUserOption((opt) =>
+      opt.setName('user1').setDescription('First player').setRequired(true)
+    )
+    .addUserOption((opt) =>
+      opt.setName('user2').setDescription('Second player').setRequired(true)
+    ),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);

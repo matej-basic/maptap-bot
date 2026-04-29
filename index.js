@@ -74,6 +74,17 @@ const getDailyScores = db.prepare(`
   ORDER BY final_score DESC
 `);
 
+const getHeadToHead = db.prepare(`
+  SELECT
+    a.game_date,
+    a.final_score AS score_a,
+    b.final_score AS score_b
+  FROM scores a
+  JOIN scores b ON a.game_date = b.game_date
+  WHERE a.user_id = ? AND b.user_id = ?
+  ORDER BY a.game_date DESC
+`);
+
 // --- Maptap message parser ---
 const MONTHS = {
   January: 1, February: 2, March: 3, April: 4,
@@ -304,6 +315,57 @@ client.on('interactionCreate', async (interaction) => {
       )
       .addFields({ name: 'Recent results', value: recentLines.join('\n') || 'None' })
       .setColor(0x57F287)
+      .setTimestamp();
+
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  if (interaction.commandName === 'compare') {
+    const userA = interaction.options.getUser('user1');
+    const userB = interaction.options.getUser('user2');
+
+    const rows = getHeadToHead.all(userA.id, userB.id);
+
+    if (rows.length === 0) {
+      return interaction.reply({
+        content: `No days where both **${userA.username}** and **${userB.username}** played.`,
+        ephemeral: true,
+      });
+    }
+
+    let winsA = 0, winsB = 0, ties = 0;
+    let totalA = 0, totalB = 0;
+
+    for (const row of rows) {
+      totalA += row.score_a;
+      totalB += row.score_b;
+      if (row.score_a > row.score_b) winsA++;
+      else if (row.score_b > row.score_a) winsB++;
+      else ties++;
+    }
+
+    const avgA = (totalA / rows.length).toFixed(1);
+    const avgB = (totalB / rows.length).toFixed(1);
+    const summaryA = getUserSummary.get(userA.id);
+    const summaryB = getUserSummary.get(userB.id);
+
+    const tiesStr = ties > 0 ? ` (${ties} tie${ties !== 1 ? 's' : ''})` : '';
+    const record = `**${userA.username}** ${winsA} — ${winsB} **${userB.username}**${tiesStr}`;
+
+    const recent = rows.slice(0, 5).map(row => {
+      const winner = row.score_a > row.score_b ? '◀' : row.score_b > row.score_a ? '▶' : '—';
+      return `\`${row.game_date}\`  ${row.score_a} ${winner} ${row.score_b}`;
+    });
+
+    const embed = new EmbedBuilder()
+      .setTitle(`⚔️ ${userA.username} vs ${userB.username}`)
+      .addFields(
+        { name: 'Head-to-head', value: record },
+        { name: `${userA.username}`, value: `avg ${avgA} | best ${summaryA?.best ?? '—'} | ${summaryA?.games ?? 0} games`, inline: true },
+        { name: `${userB.username}`, value: `avg ${avgB} | best ${summaryB?.best ?? '—'} | ${summaryB?.games ?? 0} games`, inline: true },
+        { name: `Last ${recent.length} shared days`, value: recent.join('\n') },
+      )
+      .setColor(0xFEE75C)
       .setTimestamp();
 
     return interaction.reply({ embeds: [embed] });
