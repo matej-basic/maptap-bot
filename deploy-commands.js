@@ -23,6 +23,16 @@ const commands = [
         .setDescription('Player to look up (defaults to you)')
         .setRequired(false)
     ),
+
+  new SlashCommandBuilder()
+    .setName('digest')
+    .setDescription('Post the daily digest for a given date (defaults to today)')
+    .addStringOption((opt) =>
+      opt
+        .setName('date')
+        .setDescription('Date in YYYY-MM-DD format (defaults to today)')
+        .setRequired(false)
+    ),
 ].map((cmd) => cmd.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);

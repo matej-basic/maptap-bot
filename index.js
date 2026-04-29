@@ -6,6 +6,7 @@ const { DatabaseSync } = require('node:sqlite');
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const DB_PATH = process.env.DB_PATH || './maptap.db';
+const DIGEST_HOUR = parseInt(process.env.DIGEST_HOUR ?? '22', 10);
 
 // --- Database setup ---
 const db = new DatabaseSync(DB_PATH);
@@ -61,6 +62,13 @@ const getUserRecent = db.prepare(`
   WHERE user_id = ?
   ORDER BY game_date DESC
   LIMIT 10
+`);
+
+const getDailyScores = db.prepare(`
+  SELECT username, final_score, rounds
+  FROM scores
+  WHERE game_date = ?
+  ORDER BY final_score DESC
 `);
 
 // --- Maptap message parser ---
@@ -254,6 +262,17 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
+  if (interaction.commandName === 'digest') {
+    const dateInput = interaction.options.getString('date');
+    const date = dateInput ?? new Date().toISOString().slice(0, 10);
+    if (dateInput && !/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+      return interaction.reply({ content: 'Invalid date format. Use YYYY-MM-DD.', ephemeral: true });
+    }
+    await interaction.deferReply();
+    await postDailyDigest(date);
+    return interaction.editReply(`Digest posted for ${date}.`);
+  }
+
   if (interaction.commandName === 'stats') {
     const targetUser = interaction.options.getUser('user') ?? interaction.user;
     const summary = getUserSummary.get(targetUser.id);
@@ -287,5 +306,49 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 });
+
+// --- Daily digest ---
+async function postDailyDigest(date) {
+  const rows = getDailyScores.all(date);
+  const channel = await client.channels.fetch(CHANNEL_ID);
+  const medals = ['🥇', '🥈', '🥉'];
+
+  const [year, month, day] = date.split('-');
+  const label = new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
+  let description;
+  if (rows.length === 0) {
+    description = 'No scores submitted today.';
+  } else {
+    description = rows.map((row, i) => {
+      const medal = medals[i] || `${i + 1}.`;
+      const rounds = JSON.parse(row.rounds);
+      const roundsStr = rounds.length > 0 ? `  \`[${rounds.join(', ')}]\`` : '';
+      return `${medal} **${row.username}** — ${row.final_score}${roundsStr}`;
+    }).join('\n');
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🗺️ Maptap Daily Digest — ${label}`)
+    .setDescription(description)
+    .setColor(0xEB459E)
+    .setTimestamp();
+
+  await channel.send({ embeds: [embed] });
+  console.log(`Daily digest posted for ${date} (${rows.length} scores)`);
+}
+
+let lastDigestDate = null;
+
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() !== DIGEST_HOUR) return;
+
+  const today = now.toISOString().slice(0, 10);
+  if (lastDigestDate === today) return;
+
+  lastDigestDate = today;
+  postDailyDigest(today).catch(err => console.error('Digest error:', err));
+}, 60_000);
 
 client.login(TOKEN);
