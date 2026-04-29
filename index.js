@@ -108,6 +108,34 @@ function parseMaptap(content) {
   return { gameDate, finalScore, rounds };
 }
 
+const ROUND_MULTIPLIERS = [1, 1, 2, 3, 3];
+const MAX_ROUND_SCORE = 100;
+const MAX_TOTAL_SCORE = 1000;
+
+function validateResult({ finalScore, rounds }) {
+  if (rounds.length < ROUND_MULTIPLIERS.length) {
+    return `Invalid result: expected ${ROUND_MULTIPLIERS.length} round scores, got ${rounds.length}.`;
+  }
+
+  for (let i = 0; i < ROUND_MULTIPLIERS.length; i++) {
+    if (rounds[i] > MAX_ROUND_SCORE) {
+      return `Invalid result: round ${i + 1} score ${rounds[i]} exceeds max of ${MAX_ROUND_SCORE}.`;
+    }
+  }
+
+  const calculated = ROUND_MULTIPLIERS.reduce((sum, mult, i) => sum + rounds[i] * mult, 0);
+
+  if (calculated !== finalScore) {
+    return `Invalid result: calculated score ${calculated} does not match submitted final score ${finalScore}.`;
+  }
+
+  if (finalScore > MAX_TOTAL_SCORE) {
+    return `Invalid result: final score ${finalScore} exceeds max of ${MAX_TOTAL_SCORE}.`;
+  }
+
+  return null;
+}
+
 // --- Discord client ---
 const client = new Client({
   intents: [
@@ -130,6 +158,14 @@ client.on('messageCreate', async (message) => {
 
   const result = parseMaptap(message.content);
   if (!result) return;
+
+  const validationError = validateResult(result);
+  if (validationError) {
+    await message.react('❌');
+    await message.reply(validationError);
+    console.log(`Rejected ${message.author.username}: ${validationError}`);
+    return;
+  }
 
   const { gameDate, finalScore, rounds } = result;
   upsertScore.run(
@@ -155,7 +191,7 @@ client.on('interactionCreate', async (interaction) => {
     let scanned = 0;
     let lastId;
     let batch = 0;
-    const MAX_MESSAGES = 1000;
+    const MAX_MESSAGES = 10000;
 
     console.log('Backfill started...');
 
@@ -171,6 +207,11 @@ client.on('interactionCreate', async (interaction) => {
         if (message.author.bot) continue;
         const result = parseMaptap(message.content);
         if (!result) continue;
+        const validationError = validateResult(result);
+        if (validationError) {
+          console.log(`  [!] Skipped ${message.author.username}: ${validationError}`);
+          continue;
+        }
         upsertScore.run(
           message.author.id,
           message.author.username,
@@ -180,7 +221,7 @@ client.on('interactionCreate', async (interaction) => {
         );
         recorded++;
         console.log(`  [+] ${message.author.username}: ${result.finalScore} on ${result.gameDate}`);
-        await message.react('✅').catch(() => {});
+        await message.react('✅').catch(() => { });
       }
 
       console.log(`Batch ${batch}: scanned ${scanned} messages total, ${recorded} results so far`);
